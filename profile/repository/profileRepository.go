@@ -51,7 +51,7 @@ func (repo *ProfileRepository) FindProfileByUsername(ctx context.Context, userna
 	defer util.Tracer.FinishSpan(span)
 
 	profile := &model.Profile{}
-	if err := repo.RelationalDatabase.Preload("ProfileSettings").Preload("PersonalData").First(&profile, "username = ?", username).Error; err != nil {
+	if err:= repo.RelationalDatabase.Table("profiles").First(&profile, "username = ?", username).Error; err != nil {
 		util.Tracer.LogError(span, err)
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func (repo *ProfileRepository) GetProfileByID(ctx context.Context, id uint) (*mo
 	span := util.Tracer.StartSpanFromContext(ctx, "GetProfileByID-repository")
 	defer util.Tracer.FinishSpan(span)
 	profile := &model.Profile{}
-	if err := repo.RelationalDatabase.Preload("ProfileSettings").Preload("PersonalData").First(&profile, "ID = ?", id).Error; err != nil {
+	if err := repo.RelationalDatabase.Table("profiles").First(&profile, "ID = ?", id).Error; err != nil {
 		util.Tracer.LogError(span, err)
 		return nil, err
 	}
@@ -80,26 +80,33 @@ func (repo *ProfileRepository) UpdateProfile(ctx context.Context, profile *model
 	return nil
 }
 
-func (repo *ProfileRepository) UpdateProfileSettings(ctx context.Context, settings model.ProfileSettings) error {
+func (repo *ProfileRepository) UpdateProfileSettings(ctx context.Context, id uint, settings model.ProfileSettings) error {
 	span := util.Tracer.StartSpanFromContext(ctx, "UpdateProfileSettings-repository")
 	defer util.Tracer.FinishSpan(span)
 
-	if err := repo.RelationalDatabase.Save(settings).Error; err != nil {
-		util.Tracer.LogError(span, err)
-		return err
-	}
-	return nil
+	return repo.RelationalDatabase.Model(&model.Profile{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"IsPrivate": settings.IsPrivate,
+		"CanReceiveMessageFromUnknown": settings.CanReceiveMessageFromUnknown,
+		"CanBeTagged": settings.CanBeTagged}).Error
+
 }
 
-func (repo *ProfileRepository) UpdatePersonalData(ctx context.Context, personalData model.PersonalData) error {
+func (repo *ProfileRepository) UpdatePersonalData(ctx context.Context,id uint, personalData model.PersonalData) error {
 	span := util.Tracer.StartSpanFromContext(ctx, "UpdatePersonalData-repository")
 	defer util.Tracer.FinishSpan(span)
+	err := repo.RelationalDatabase.Model(&model.Profile{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"Name"		: personalData.Name,
+		"Surname"	: personalData.Surname,
+		"Telephone"	: personalData.Telephone,
+		"Gender" 	: personalData.Gender,
+		"BirthDate"	: personalData.BirthDate,
+	}).Error
 
-	if err := repo.RelationalDatabase.Save(personalData).Error; err != nil {
+	if err != nil {
 		util.Tracer.LogError(span, err)
-		return err
 	}
-	return nil
+
+	return err
 }
 
 func (repo *ProfileRepository) GetAllInterests(ctx context.Context) ([]string, error) {
@@ -253,9 +260,7 @@ func (repo *ProfileRepository) GetByInterests(ctx context.Context, interests []s
 
 	var profiles []model.Profile
 	if err := repo.RelationalDatabase.Raw("select * from profiles p where p.id in "+
-		"(select pd.profile_id from personal_data pd where pd.id in "+
-		"(select pi.personal_data_id from person_interests pi where pi.interest_id in"+
-		"(select i.id from interests i where i.name in (?))))", interests).Scan(&profiles).Error; err != nil {
+		"(select i.id from interests i where i.name in (?))", interests).Scan(&profiles).Error; err != nil {
 		util.Tracer.LogError(span, err)
 		return nil, err
 	}
