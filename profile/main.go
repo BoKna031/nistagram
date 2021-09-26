@@ -25,25 +25,9 @@ func initDBs() (*gorm.DB, *redis.Client) {
 		err error
 	)
 	time.Sleep(5 * time.Second)
-	var dbHost, dbPort, dbUsername, dbPassword = "localhost", "3306", "root", "root" // dev.db environment
-	_, ok := os.LookupEnv("DOCKER_ENV_SET_PROD")                                     // production environment
-	if ok {
-		dbHost = "db_profile"
-		dbPort = "3306"
-		dbUsername = os.Getenv("DB_USERNAME")
-		dbPassword = os.Getenv("DB_PASSWORD")
-	} else {
-		_, ok := os.LookupEnv("DOCKER_ENV_SET_DEV") // dev front environment
-		if ok {
-			dbHost = "db_relational"
-			dbPort = "3306"
-			dbUsername = os.Getenv("DB_USERNAME")
-			dbPassword = os.Getenv("DB_PASSWORD")
-		}
-	}
+	dbHost, dbPort, dbUsername, dbPassword := getDBInfoFromDockerCompose()
 	for {
 		db, err = gorm.Open(mysql.Open(dbUsername + ":" + dbPassword + "@tcp(" + dbHost + ":" + dbPort + ")/profile?charset=utf8mb4&parseTime=True&loc=Local"))
-
 		if err != nil {
 			fmt.Println("Cannot connect to database! Sleeping 10s and then retrying....")
 			time.Sleep(10 * time.Second)
@@ -58,14 +42,6 @@ func initDBs() (*gorm.DB, *redis.Client) {
 		return nil, nil
 	}
 	err = db.AutoMigrate(&model.Interest{})
-	if err != nil {
-		return nil, nil
-	}
-	err = db.AutoMigrate(&model.PersonalData{})
-	if err != nil {
-		return nil, nil
-	}
-	err = db.AutoMigrate(&model.ProfileSettings{})
 	if err != nil {
 		return nil, nil
 	}
@@ -88,8 +64,8 @@ func initDBs() (*gorm.DB, *redis.Client) {
 		Password: "",
 		DB:       0,
 	})
-	Ctx := context.TODO()
-	if err := client.Ping(Ctx).Err(); err != nil {
+	ctx := context.TODO()
+	if err := client.Ping(ctx).Err(); err != nil {
 		fmt.Println(err)
 		return db, nil
 	}
@@ -167,6 +143,26 @@ func handleFunc(handler *handler.Handler) {
 		fmt.Println(err)
 		return
 	}
+}
+
+func getDBInfoFromDockerCompose() (string, string, string, string){
+	var dbHost, dbPort, dbUsername, dbPassword = "localhost", "3306", "root", "root" // dev.db environment
+	_, ok := os.LookupEnv("DOCKER_ENV_SET_PROD")                                     // production environment
+	if ok {
+		dbHost = "db_profile"
+		dbPort = "3306"
+		dbUsername = os.Getenv("DB_USERNAME")
+		dbPassword = os.Getenv("DB_PASSWORD")
+	} else {
+		_, ok := os.LookupEnv("DOCKER_ENV_SET_DEV") // dev front environment
+		if ok {
+			dbHost = "db_relational"
+			dbPort = "3306"
+			dbUsername = os.Getenv("DB_USERNAME")
+			dbPassword = os.Getenv("DB_PASSWORD")
+		}
+	}
+	return dbHost, dbPort, dbUsername, dbPassword
 }
 
 func initSagaHandlers(handler *handler.Handler) []saga.ChannelHandler {
