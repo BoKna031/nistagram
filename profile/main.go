@@ -27,7 +27,7 @@ func initDBs() (*gorm.DB, *redis.Client) {
 	time.Sleep(5 * time.Second)
 	dbHost, dbPort, dbUsername, dbPassword := getDBInfoFromDockerCompose()
 	for {
-		db, err = gorm.Open(mysql.Open(dbUsername + ":" + dbPassword + "@tcp(" + dbHost + ":" + dbPort + ")/profile?charset=utf8mb4&parseTime=True&loc=Local"))
+		db, err = connectToDatabase(dbUsername, dbPassword, dbHost, dbPort)
 		if err != nil {
 			fmt.Println("Cannot connect to database! Sleeping 10s and then retrying....")
 			time.Sleep(10 * time.Second)
@@ -37,23 +37,7 @@ func initDBs() (*gorm.DB, *redis.Client) {
 		}
 	}
 
-	err = db.AutoMigrate(&model.Category{})
-	if err != nil {
-		return nil, nil
-	}
-	err = db.AutoMigrate(&model.Interest{})
-	if err != nil {
-		return nil, nil
-	}
-	err = db.AutoMigrate(&model.VerificationRequest{})
-	if err != nil {
-		return nil, nil
-	}
-	err = db.AutoMigrate(&model.Profile{})
-	if err != nil {
-		return nil, nil
-	}
-	err = db.AutoMigrate(&model.AgentRequest{})
+	db, err = createTables(db)
 	if err != nil {
 		return nil, nil
 	}
@@ -70,6 +54,34 @@ func initDBs() (*gorm.DB, *redis.Client) {
 		return db, nil
 	}
 	return db, client
+}
+
+func createTables(db *gorm.DB) (*gorm.DB, error) {
+	err := db.AutoMigrate(&model.Category{})
+	if err != nil {
+		return  nil, err
+	}
+	err = db.AutoMigrate(&model.Interest{})
+	if err != nil {
+		return  nil, err
+	}
+	err = db.AutoMigrate(&model.VerificationRequest{})
+	if err != nil {
+		return nil, err
+	}
+	err = db.AutoMigrate(&model.Profile{})
+	if err != nil {
+		return nil, err
+	}
+	err = db.AutoMigrate(&model.AgentRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+func connectToDatabase(dbUsername string, dbPassword string, dbHost string, dbPort string) (*gorm.DB, error) {
+	return gorm.Open(mysql.Open(dbUsername + ":" + dbPassword + "@tcp(" + dbHost + ":" + dbPort + ")/profile?charset=utf8mb4&parseTime=True&loc=Local"))
 }
 
 func initProfileRepo(database *gorm.DB, client *redis.Client) *repository.ProfileRepository {
