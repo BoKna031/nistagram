@@ -25,12 +25,12 @@ func (service *ProfileService) Register(ctx context.Context, dto dto.Registratio
 	profileSettings := model.ProfileSettings{IsPrivate: dto.IsPrivate, CanReceiveMessageFromUnknown: true, CanBeTagged: true}
 	personalData := model.PersonalData{Name: dto.Name, Surname: dto.Surname, Telephone: dto.Telephone,
 		Gender: dto.Gender, BirthDate: dto.BirthDate}
-	for _, item := range dto.InterestedIn {
-		interest := service.ProfileRepository.FindInterestByName(nextCtx, item)
-		personalData.AddItem(interest)
-	}
 	profile := model.Profile{Username: dto.Username, Email: dto.Email, ProfileSettings: profileSettings,
 		PersonalData: personalData, Biography: dto.Biography, Website: dto.WebSite, IsVerified: false}
+	for _, item := range dto.InterestedIn {
+		interest := service.ProfileRepository.FindInterestByName(nextCtx, item)
+		profile.AddItem(interest)
+	}
 	err := service.ProfileRepository.CreateProfile(nextCtx, &profile)
 	if err != nil {
 		util.Tracer.LogError(span, err)
@@ -202,12 +202,7 @@ func (service *ProfileService) ChangeProfileSettings(ctx context.Context, dto dt
 	util.Tracer.LogFields(span, "service", fmt.Sprintf("servicing logged user id  %v\n", loggedUserId))
 	nextCtx := util.Tracer.ContextWithSpan(ctx, span)
 
-	profile, err := service.ProfileRepository.GetProfileByID(nextCtx, loggedUserId)
-	if err != nil {
-		util.Tracer.LogError(span, err)
-		return err
-	}
-	profileSettings := profile.ProfileSettings
+	var profileSettings model.ProfileSettings
 	var privacyChanged = false
 	if profileSettings.IsPrivate != dto.IsPrivate {
 		privacyChanged = true
@@ -220,13 +215,13 @@ func (service *ProfileService) ChangeProfileSettings(ctx context.Context, dto dt
 	profileSettings.IsPrivate = dto.IsPrivate
 	profileSettings.CanBeTagged = dto.CanBeTagged
 	profileSettings.CanReceiveMessageFromUnknown = dto.CanReceiveMessageFromUnknown
-	err = service.ProfileRepository.UpdateProfileSettings(nextCtx, profileSettings)
+	err := service.ProfileRepository.UpdateProfileSettings(nextCtx,loggedUserId, profileSettings)
 	if err != nil{
 		return err
 	}
 
 	if privacyChanged {
-		profile.ProfileSettings.IsPrivate = profileSettings.IsPrivate
+		profile, _ := service.ProfileRepository.GetProfileByID(nextCtx, loggedUserId)
 		m := saga.Message{NextService: saga.PostService, SenderService: saga.ProfileService,
 			Action: saga.ActionStart, Functionality: saga.ChangeProfilesPrivacy, Profile: profile}
 		saga.Orch.Next(saga.PostChannel, saga.PostService, m)
@@ -237,6 +232,7 @@ func (service *ProfileService) ChangeProfileSettings(ctx context.Context, dto dt
 func (service *ProfileService) ChangePersonalData(ctx context.Context, dto dto.PersonalDataDTO, loggedUserId uint) (string, string, error) {
 	span := util.Tracer.StartSpanFromContext(ctx, "ChangePersonalData-service")
 	defer util.Tracer.FinishSpan(span)
+
 	util.Tracer.LogFields(span, "service", fmt.Sprintf("servicing logged user id %v\n",loggedUserId))
 	nextCtx := util.Tracer.ContextWithSpan(ctx, span)
 
@@ -245,9 +241,10 @@ func (service *ProfileService) ChangePersonalData(ctx context.Context, dto dto.P
 		util.Tracer.LogError(span, err)
 		return "", "", err
 	}
+
 	oldUsername, oldEmail := "", ""
-	callAuth := false
-	callPost := false
+	callAuth, callPost := false, false
+
 	if profile.Email != dto.Email {
 		oldEmail = profile.Email
 		callAuth = true
@@ -275,13 +272,10 @@ func (service *ProfileService) ChangePersonalData(ctx context.Context, dto dto.P
 	if callAuth {
 		postBody, _ := json.Marshal(map[string]string{
 			"profileId": util.Uint2String(profile.ID),
-			"email":     profile.Email,
-			"username":  profile.Username,
+			"email":     dto.Email,
+			"username":  dto.Username,
 		})
-		authHost, authPort := util.GetAuthHostAndPort()
-		_, err = util.CrossServiceRequest(nextCtx, http.MethodPost,
-			util.GetCrossServiceProtocol()+"://"+authHost+":"+authPort+"/update-user", postBody,
-			map[string]string{"Content-Type": "application/json;"})
+		err = sendRequestToAuthService(nextCtx,http.MethodPost,"update-user",postBody)
 		if err != nil {
 			util.Tracer.LogError(span, err)
 			fmt.Println(err)
@@ -295,8 +289,15 @@ func (service *ProfileService) ChangePersonalData(ctx context.Context, dto dto.P
 			return "", "", err
 		}
 	}
-	err = service.ProfileRepository.UpdatePersonalData(nextCtx, profile.PersonalData)
 	return oldUsername, oldEmail, err
+}
+
+func sendRequestToAuthService(nextCtx context.Context, method string, endpoint string, postBody []byte) error {
+	authHost, authPort := util.GetAuthHostAndPort()
+	url := util.GetCrossServiceProtocol()+"://"+authHost+":"+authPort+"/"+endpoint
+	_, err := util.CrossServiceRequest(nextCtx, method, url, postBody,
+		map[string]string{"Content-Type": "application/json;"})
+	return err
 }
 
 func (service *ProfileService) GetAllInterests(ctx context.Context) ([]string, error) {

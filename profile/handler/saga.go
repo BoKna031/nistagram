@@ -13,7 +13,7 @@ func (handler *Handler) ChangePrivacyRollbackHandler(client *redis.Client, m sag
 		case saga.ChangeProfilesPrivacy:
 			profile := m.Profile
 			profile.ProfileSettings.IsPrivate = !profile.ProfileSettings.IsPrivate
-			err := handler.ProfileService.ProfileRepository.UpdateProfileSettings(context.Background(), profile.ProfileSettings)
+			err := handler.ProfileService.ProfileRepository.UpdateProfileSettings(context.Background(),profile.ID, profile.ProfileSettings)
 			if err != nil{
 				fmt.Println(err)
 			}
