@@ -46,8 +46,10 @@ func (repo *Repository) FindConnectionDegreeForRecommendation(ctx context.Contex
 	span := util.Tracer.StartSpanFromContext(ctx, "FindConnectionDegreeForRecommendation-repository")
 	defer util.Tracer.FinishSpan(span)
 	util.Tracer.LogFields(span, "repository", fmt.Sprintf("repository call for id %v\n", id))
+
 	session := (*repo.DatabaseDriver).NewSession(neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close()
+
 	profile := model.ProfileVertex{ProfileID: id}
 	ret, err := session.WriteTransaction(func(transaction neo4j.Transaction) (interface{}, error) {
 		result, err := transaction.Run(

@@ -28,31 +28,25 @@ func (repo *CampaignRepository) CreateCampaign(ctx context.Context, campaign mod
 	return campaign, nil
 }
 
-func (repo *CampaignRepository) UpdateCampaignParameters(ctx context.Context, campaignParameters model.CampaignParameters)  error {
+func (repo *CampaignRepository) UpdateCampaignParameters(ctx context.Context, newCampParams model.CampaignParameters)  error {
 	span := util.Tracer.StartSpanFromContext(ctx, "UpdateCampaignParameters-repository")
 	defer util.Tracer.FinishSpan(span)
 
 	var oldValue model.CampaignParameters
-	tomorrow := time.Now().Add(24 * time.Hour)
+
+	newCampParams.Start = time.Now().Add(24 * time.Hour)
+
 	tx := repo.Database.Begin()
-	result := tx.Table("campaign_parameters").Exec("UPDATE campaign_parameters SET end = ? WHERE id IN" +
-		"(SELECT searched.id FROM (SELECT * FROM campaign_parameters cp WHERE cp.campaign_id = ? AND cp.start < ? AND cp.deleted_at IS NULL " +
-		"ORDER BY cp.start DESC LIMIT 1) searched)",tomorrow, campaignParameters.CampaignID, tomorrow).Scan(&oldValue)
+	result := tx.Table("campaign_parameters").Exec(
+		"UPDATE campaign_parameters SET end = ? WHERE id IN" +
+			"(SELECT searched.id FROM " +
+			"(SELECT * FROM campaign_parameters cp WHERE " +
+			"cp.campaign_id = ? AND cp.start < ? AND cp.deleted_at IS NULL " +
+			"ORDER BY cp.start DESC LIMIT 1) searched)",newCampParams.Start, newCampParams.CampaignID, newCampParams.Start).Scan(&oldValue)
 	if result.Error != nil {
 		util.Tracer.LogError(span, result.Error)
 		return result.Error
 	}
-
-	newCampParams := model.CampaignParameters{
-		Model:            gorm.Model{},
-		Start:            tomorrow,
-		End:              campaignParameters.End,
-		CampaignID:       campaignParameters.CampaignID,
-		Interests:        campaignParameters.Interests,
-		CampaignRequests: campaignParameters.CampaignRequests,
-		Timestamps:       campaignParameters.Timestamps,
-	}
-
 
 	if err := tx.Table("campaign_parameters").Create(&newCampParams).Error; err != nil {
 		util.Tracer.LogError(span, err)
